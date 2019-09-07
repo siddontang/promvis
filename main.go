@@ -1,13 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
-	"fmt"
+	"io"
 	"os"
 	"time"
 
+	"github.com/chzyer/readline"
+	"github.com/pingcap/go-ycsb/pkg/util"
 	"github.com/prometheus/common/model"
 
 	ui "github.com/gizak/termui/v3"
@@ -41,7 +42,7 @@ func newPromClientAPI() v1.API {
 
 var promAPI v1.API
 
-func queryData(query string) []float64 {
+func queryValue(query string) model.Value {
 	r := v1.Range{
 		Start: time.Now().Add(-time.Minute * 15),
 		End:   time.Now(),
@@ -52,6 +53,11 @@ func queryData(query string) []float64 {
 	result, _, err := promAPI.QueryRange(ctx, query, r)
 	cancel()
 	perr(err)
+	return result
+}
+
+func queryData(query string) []float64 {
+	result := queryValue(query)
 
 	m, ok := result.(model.Matrix)
 	if !ok || len(m) == 0 {
@@ -110,12 +116,32 @@ func main() {
 
 	promAPI = newPromClientAPI()
 
+	l, err := readline.NewEx(&readline.Config{
+		Prompt:            "\033[31mInput your Prometheus Query -> \033[0m ",
+		HistoryFile:       "/tmp/readline.tmp",
+		InterruptPrompt:   "^C",
+		EOFPrompt:         "^D",
+		HistorySearchFold: true,
+	})
+	if err != nil {
+		util.Fatal(err)
+	}
+	defer l.Close()
+
 	for {
+		line, err := l.Readline()
+		if err != nil {
+			if err == readline.ErrInterrupt {
+				return
+			} else if err == io.EOF {
+				return
+			}
+			continue
+		}
+		if line == "exit" {
+			return
+		}
 
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Input your Prometheus Query -> ")
-		query, _ := reader.ReadString('\n')
-
-		render(query)
+		render(line)
 	}
 }
